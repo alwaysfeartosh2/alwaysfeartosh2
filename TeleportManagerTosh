@@ -1,0 +1,320 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local lp = Players.LocalPlayer
+local pgui = lp:WaitForChild("PlayerGui")
+local mouse = lp:GetMouse()
+
+-- Destroy existing UI if present
+local existing = pgui:FindFirstChild("TeleportManagerGui")
+if existing then
+    existing:Destroy()
+end
+
+-- Suite-Compliant Modern Dark Theme
+local Theme = {
+    Background = Color3.fromRGB(0, 0, 0),
+    Header = Color3.fromRGB(15, 15, 15),
+    Panel = Color3.fromRGB(22, 22, 22),
+    Input = Color3.fromRGB(30, 30, 30),
+    Text = Color3.fromRGB(255, 255, 255),
+    TextMuted = Color3.fromRGB(160, 160, 160),
+    Accent1 = Color3.fromRGB(255, 255, 255),
+    Border = Color3.fromRGB(60, 60, 60),
+    Danger = Color3.fromRGB(45, 45, 45),
+}
+
+-- Core Utility Helpers
+local function createInstance(className, properties)
+    local obj = Instance.new(className)
+    for k, v in pairs(properties) do
+        if k ~= "Parent" then obj[k] = v end
+    end
+    if properties.Parent then obj.Parent = properties.Parent end
+    return obj
+end
+
+local function createCorner(parent, radius)
+    return createInstance("UICorner", { CornerRadius = UDim.new(0, radius or 8), Parent = parent })
+end
+
+local function createStroke(parent, color, thickness, transparency)
+    return createInstance("UIStroke", {
+        Color = color or Theme.Border,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = parent
+    })
+end
+
+local function createPadding(parent, t, b, l, r)
+    return createInstance("UIPadding", {
+        PaddingTop = UDim.new(0, t or 0),
+        PaddingBottom = UDim.new(0, b or 0),
+        PaddingLeft = UDim.new(0, l or 0),
+        PaddingRight = UDim.new(0, r or 0),
+        Parent = parent
+    })
+end
+
+-- Interactivity Features (Drag / Resize)
+local function makeDraggable(clickFrame, objectToMove)
+    local dragging, dragStart, startPos
+    clickFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local overButton = false
+            for _, child in ipairs(clickFrame:GetChildren()) do
+                if child:IsA("TextButton") and child.Visible then
+                    local minX, maxX = child.AbsolutePosition.X, child.AbsolutePosition.X + child.AbsoluteSize.X
+                    local minY, maxY = child.AbsolutePosition.Y, child.AbsolutePosition.Y + child.AbsoluteSize.Y
+                    if input.Position.X >= minX and input.Position.X <= maxX and input.Position.Y >= minY and input.Position.Y <= maxY then
+                        overButton = true; break
+                    end
+                end
+            end
+            if overButton then return end
+            dragging = true; dragStart = input.Position; startPos = objectToMove.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            objectToMove.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+end
+
+-- Window size optimized shorter since Status is removed
+local normalSize = UDim2.new(0, 320, 0, 185)
+local resizeHandle
+
+local function makeResizable(objectToMove, minWidth, minHeight)
+    resizeHandle = createInstance("TextButton", {
+        Name = "ResizeHandle", Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -24, 1, -24), BackgroundTransparency = 1, Text = "", ZIndex = 10, Parent = objectToMove
+    })
+    local cornerLine = createInstance("Frame", { Name = "CornerLine", Size = UDim2.new(0, 16, 0, 16), Position = UDim2.new(0, 12, 0, 12), BackgroundTransparency = 1, Parent = resizeHandle })
+    createCorner(cornerLine, 8)
+    local stroke = createStroke(cornerLine, Theme.TextMuted, 1.5, 0.4)
+    
+    local resizing, dragStart, startSize
+    resizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            resizing = true; dragStart = input.Position; startSize = objectToMove.AbsoluteSize
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if resizing then
+            local delta = input.Position - dragStart
+            normalSize = UDim2.new(0, math.max(minWidth or 200, startSize.X + delta.X), 0, math.max(minHeight or 150, startSize.Y + delta.Y))
+            objectToMove.Size = normalSize
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then resizing = false end
+    end)
+end
+
+-- Base Canvas Nodes Assembly
+local screenGui = createInstance("ScreenGui", { Name = "TeleportManagerGui", ResetOnSpawn = false, Parent = pgui })
+local mainFrame = createInstance("Frame", { Name = "MainFrame", Size = normalSize, Position = UDim2.new(0.5, -160, 0.4, -92), BackgroundColor3 = Theme.Background, BorderSizePixel = 0, ClipsDescendants = true, Parent = screenGui })
+createCorner(mainFrame, 12)
+createStroke(mainFrame, Theme.Border, 1)
+
+-- Topbar Header Node
+local header = createInstance("Frame", { Name = "Header", Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = Theme.Header, BorderSizePixel = 0, Parent = mainFrame })
+createCorner(header, 12)
+createInstance("Frame", { Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -10), BackgroundColor3 = Theme.Header, BorderSizePixel = 0, Parent = header })
+createInstance("Frame", { Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.Border, BorderSizePixel = 0, Parent = header })
+
+local statusDot = createInstance("Frame", { Size = UDim2.new(0, 8, 0, 8), Position = UDim2.new(0, 15, 0.5, -4), BackgroundColor3 = Theme.TextMuted, BorderSizePixel = 0, Parent = header })
+createCorner(statusDot, 4)
+local headerTitle = createInstance("TextLabel", { Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0, 30, 0, 0), BackgroundTransparency = 1, Text = "E6Toshiro Made This Teleport", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left, Parent = header })
+
+local minimizeBtn = createInstance("TextButton", { Name = "MinimizeBtn", Size = UDim2.new(0, 12, 0, 12), Position = UDim2.new(1, -48, 0.5, -6), BackgroundColor3 = Color3.fromRGB(120, 120, 120), BorderSizePixel = 0, Text = "", Parent = header })
+createCorner(minimizeBtn, 6)
+local closeBtn = createInstance("TextButton", { Name = "CloseBtn", Size = UDim2.new(0, 12, 0, 12), Position = UDim2.new(1, -24, 0.5, -6), BackgroundColor3 = Color3.fromRGB(240, 240, 240), BorderSizePixel = 0, Text = "", Parent = header })
+createCorner(closeBtn, 6)
+
+local content = createInstance("Frame", { Position = UDim2.new(0, 0, 0, 42), Size = UDim2.new(1, 0, 1, -42), BackgroundTransparency = 1, Parent = mainFrame })
+createPadding(content, 15, 15, 15, 15)
+local layout = createInstance("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 12), Parent = content })
+
+-- System Keybind Binding Field Element
+local tpKeybind = Enum.KeyCode.F
+local listeningForKey = false
+
+local keybindFrame = createInstance("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 1, Parent = content })
+createInstance("TextLabel", { Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, Text = "CLICK TELEPORT KEY", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Theme.TextMuted, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, Parent = keybindFrame })
+
+local keybindBtn = createInstance("TextButton", { Size = UDim2.new(0, 80, 0, 20), Position = UDim2.new(1, 0, 0.5, 0), AnchorPoint = Vector2.new(1, 0.5), BackgroundColor3 = Theme.Input, Text = "F", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Theme.Text, AutoButtonColor = false, Parent = keybindFrame })
+createCorner(keybindBtn, 6)
+local keybindStroke = createStroke(keybindBtn, Theme.Border, 1)
+
+keybindBtn.MouseButton1Click:Connect(function()
+    if listeningForKey then return end
+    listeningForKey = true
+    keybindBtn.Text = "..."
+    keybindStroke.Color = Theme.Text
+end)
+
+-- PC Player Feature Option: Keybind + Mouse Click Hybrid Requirement Toggle
+local requireKeyAndClick = false
+
+local hybridToggleFrame = createInstance("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 2, Parent = content })
+createInstance("TextLabel", { Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, Text = "REQUIRE KEY+CLICK (PC)", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Theme.TextMuted, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, Parent = hybridToggleFrame })
+
+local hybridSwitchBtn = createInstance("TextButton", { Size = UDim2.new(0, 36, 0, 18), Position = UDim2.new(1, 0, 0.5, 0), AnchorPoint = Vector2.new(1, 0.5), BackgroundColor3 = Theme.Input, Text = "", AutoButtonColor = false, Parent = hybridToggleFrame })
+createCorner(hybridSwitchBtn, 9)
+local hybridSwitchStroke = createStroke(hybridSwitchBtn, Theme.Border, 1)
+local hybridSwitchCircle = createInstance("Frame", { Size = UDim2.new(0, 12, 0, 12), Position = UDim2.new(0, 3, 0.5, -6), BackgroundColor3 = Theme.TextMuted, BorderSizePixel = 0, Parent = hybridSwitchBtn })
+createCorner(hybridSwitchCircle, 6)
+
+local function updateHybridVisuals(enabled)
+    if enabled then
+        TweenService:Create(hybridSwitchCircle, TweenInfo.new(0.15), {Position = UDim2.new(0, 21, 0.5, -6), BackgroundColor3 = Theme.Header}):Play()
+        TweenService:Create(hybridSwitchBtn, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Text}):Play()
+    else
+        TweenService:Create(hybridSwitchCircle, TweenInfo.new(0.15), {Position = UDim2.new(0, 3, 0.5, -6), BackgroundColor3 = Theme.TextMuted}):Play()
+        TweenService:Create(hybridSwitchBtn, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Input}):Play()
+    end
+end
+
+hybridSwitchBtn.MouseButton1Click:Connect(function()
+    requireKeyAndClick = not requireKeyAndClick
+    updateHybridVisuals(requireKeyAndClick)
+end)
+
+-- Mobile Switch System Toggle Element Row
+local showMobileToggle = false
+local tpTool = nil
+
+local mobileToggleFrame = createInstance("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 3, Parent = content })
+createInstance("TextLabel", { Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, Text = "MOBILE INVENTORY TOOL", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Theme.TextMuted, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, Parent = mobileToggleFrame })
+
+local switchBtn = createInstance("TextButton", { Size = UDim2.new(0, 36, 0, 18), Position = UDim2.new(1, 0, 0.5, 0), AnchorPoint = Vector2.new(1, 0.5), BackgroundColor3 = Theme.Input, Text = "", AutoButtonColor = false, Parent = mobileToggleFrame })
+createCorner(switchBtn, 9)
+local switchStroke = createStroke(switchBtn, Theme.Border, 1)
+local switchCircle = createInstance("Frame", { Size = UDim2.new(0, 12, 0, 12), Position = UDim2.new(0, 3, 0.5, -6), BackgroundColor3 = Theme.TextMuted, BorderSizePixel = 0, Parent = switchBtn })
+createCorner(switchCircle, 6)
+
+local function updateSwitchVisuals(enabled)
+    if enabled then
+        TweenService:Create(switchCircle, TweenInfo.new(0.15), {Position = UDim2.new(0, 21, 0.5, -6), BackgroundColor3 = Theme.Header}):Play()
+        TweenService:Create(switchBtn, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Text}):Play()
+    else
+        TweenService:Create(switchCircle, TweenInfo.new(0.15), {Position = UDim2.new(0, 3, 0.5, -6), BackgroundColor3 = Theme.TextMuted}):Play()
+        TweenService:Create(switchBtn, TweenInfo.new(0.15), {BackgroundColor3 = Theme.Input}):Play()
+    end
+end
+
+-- Core Teleport Physics Engine Logic
+local function executeTeleportPhysics()
+    local char = lp.Character
+    if not char then return end
+    
+    local hm = char:FindFirstChildOfClass("Humanoid")
+    if hm and hm.SeatPart then 
+        hm.Sit = false 
+        task.wait(0.05) 
+    end
+    
+    local root = char:FindFirstChild("HumanoidRootPart") or (hm and hm.RootPart)
+    if not root then return end
+    
+    -- Optimized: Raycast calculation isolated strictly to confirmation trigger
+    local targetPosition = mouse.Hit.Position
+
+    local hh = hm and hm.HipHeight > 0 and (hm.HipHeight + 1) or 4
+    root.CFrame = CFrame.new(targetPosition, Vector3.new(root.Position.X, targetPosition.Y, root.Position.Z)) * CFrame.Angles(0, math.pi, 0) + Vector3.new(0, hh, 0)
+end
+
+-- Unified Input Listener
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if listeningForKey then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            listeningForKey = false
+            tpKeybind = input.KeyCode
+            keybindBtn.Text = tostring(input.KeyCode.Name)
+            keybindStroke.Color = Theme.Border
+        end
+        return
+    end
+    
+    if gameProcessed or UserInputService:GetFocusedTextBox() then return end
+    
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if not requireKeyAndClick and input.KeyCode == tpKeybind then 
+            executeTeleportPhysics() 
+        end
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if requireKeyAndClick and UserInputService:IsKeyDown(tpKeybind) then
+            executeTeleportPhysics()
+        end
+    end
+end)
+
+-- Custom Mobile Backpack Tool Manager
+local function updateMobileToolState()
+    if tpTool then
+        tpTool:Destroy()
+        tpTool = nil
+    end
+    
+    if lp.Character and lp.Character:FindFirstChild("Teleport Tool") then
+        lp.Character["Teleport Tool"]:Destroy()
+    end
+
+    if showMobileToggle then
+        tpTool = Instance.new("Tool")
+        tpTool.Name = "Teleport Tool"
+        tpTool.RequiresHandle = false
+        tpTool.CanBeDropped = false
+        
+        tpTool.Activated:Connect(executeTeleportPhysics)
+        
+        local backpack = lp:WaitForChild("Backpack", 2)
+        if backpack then
+            tpTool.Parent = backpack
+        end
+    end
+end
+
+-- Character lifecycle mapper
+lp.CharacterAdded:Connect(function()
+    if showMobileToggle then
+        task.wait(0.3)
+        updateMobileToolState()
+    end
+end)
+
+switchBtn.MouseButton1Click:Connect(function()
+    showMobileToggle = not showMobileToggle
+    updateSwitchVisuals(showMobileToggle)
+    updateMobileToolState()
+end)
+
+-- Topbar UI Controls Functionality Window Actions
+makeDraggable(header, mainFrame)
+makeResizable(mainFrame, 200, 150)
+
+local isMinimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    content.Visible = not isMinimized
+    if resizeHandle then resizeHandle.Visible = not isMinimized end
+    TweenService:Create(mainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Size = isMinimized and UDim2.new(0, normalSize.X.Offset, 0, 42) or normalSize}):Play()
+end)
+
+closeBtn.MouseButton1Click:Connect(function() 
+    if tpTool then tpTool:Destroy() end
+    screenGui:Destroy() 
+end)
+
+screenGui.Destroying:Connect(function() 
+    if tpTool then tpTool:Destroy() end 
+end)
